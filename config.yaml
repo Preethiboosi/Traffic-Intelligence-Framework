@@ -1,0 +1,18 @@
+# Traffic Quality Thresholds
+# Adjust these values to match your campaign expectations.
+
+scoring:
+  ctr:
+    min_healthy: 0.0001   # 0.01% — below this is likely dead traffic
+    max_healthy: 0.10     # 10%   — above this is likely bot-inflated
+  bounce_rate_max: 0.85   # 85%  — above this signals low-intent visits
+  session_time_max: 120   # 120s — used to normalize dwell time to 0–100
+
+fraud_flags:
+  impression_spike_multiplier: 3.0   # flag if volume > 3x historical average
+  zero_cvr_click_threshold: 500      # min clicks before ZERO_CVR flag applies
+  high_ctr_threshold: 0.15           # 15% CTR is abnormal for display traffic
+
+recommendations:
+  pause_below_score: 40
+  scale_above_score: 70

@@ -1,0 +1,11 @@
+vendor_id,vendor_name,impressions,clicks,conversions,bounce_rate,avg_session_sec,impressions_prev_avg
+V001,SportzMedia,12000,1080,54,0.42,95,4100
+V002,NewsHub,8500,8,0,0.91,4,8400
+V003,LifestyleNet,5000,500,0,0.72,18,1600
+V004,TechBlog,3200,22,8,0.38,110,3100
+V005,BargainSites,950,142,1,0.88,6,960
+V006,CookingCorner,4100,57,19,0.33,140,4000
+V007,GamingZone,780,117,0,0.65,22,260
+V008,TravelPlus,6200,93,31,0.29,175,6100
+V009,FinanceDaily,2900,29,12,0.41,88,2800
+V010,MemeWorld,18000,2700,2,0.95,3,5900
