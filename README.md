@@ -1,52 +1,74 @@
 # Traffic Intelligence Framework
 
-A lightweight POC for evaluating vendor traffic quality in media buying campaigns.
-Built to help operations and media buying teams decide which vendors to scale, monitor, or pause.
+A lightweight, local-first POC for evaluating vendor traffic quality in media buying — without relying on downstream conversion data.
+
+Built as a demonstration of three connected layers:
+1. **Traffic-quality analytics** — behavioral scoring across 6 engagement signals
+2. **Anomaly detection / decisioning** — rule-based fraud flags and SCALE / MONITOR / PAUSE recommendations
+3. **Experiment orchestration** — vendor A/B testing with uplift measurement
 
 ---
 
 ## Problem Statement
 
-Media buyers running programmatic campaigns have limited visibility into whether the traffic they are paying for is genuine. Standard metrics like impressions and clicks are easily inflated. Without downstream conversion data — which is often delayed or unavailable — teams rely on gut feel or crude CTR checks.
+Media buyers running programmatic campaigns need to evaluate whether the traffic they are paying for is genuine — but **downstream conversion data is often unavailable**.
 
-This tool evaluates vendor traffic using behavioral proxy signals and flags patterns consistent with low-quality or fraudulent traffic, giving buyers an objective, explainable basis for budget decisions.
+Reasons include:
+- Upper-funnel campaigns with no direct conversion goal
+- Attribution windows of 24–72 hours making real-time decisions impossible
+- Publisher-side restrictions on conversion pixel placement
+- Privacy regulations limiting cross-site tracking
+
+Without conversion signals, teams fall back on gut feel or crude CTR checks. This framework provides an objective, explainable, behavior-based alternative.
 
 ---
 
-## POC Objective
+## Solution Overview
 
-Demonstrate a complete, working evaluation pipeline that:
-- ingests vendor-level traffic data
-- scores each vendor across multiple engagement signals
-- detects suspicious traffic patterns using rule-based logic
-- produces a clear SCALE / MONITOR / PAUSE recommendation with reasoning
-- presents everything in a simple, analyst-friendly dashboard
+The system scores vendors using **behavioral proxy signals** measured directly on landing pages:
+
+| Signal | What it captures |
+|---|---|
+| CTR legitimacy | Whether click-through rates are within plausible ranges |
+| Bounce rate | Whether users engage beyond the first page view |
+| Dwell time | How long users spend on the landing page |
+| Scroll depth | How far users scroll — a proxy for content consumption |
+| Repeat visit rate | Whether users return — a healthy engagement signal |
+| Trend health | Whether engagement is improving or deteriorating over time |
+
+These signals are combined into a **composite quality score (0–100)**, then augmented with **rule-based anomaly flags** that detect patterns consistent with invalid traffic.
 
 ---
 
 ## Architecture
 
 ```
-CSV input (vendor traffic data)
+CSV Upload / Data Warehouse
         │
         ▼
-   Ingestion & Validation      src/ingestion.py
-   Derive CTR, CVR
+src/ingestion.py          Validate columns, cast types, derive CTR, sort by vendor/date
         │
         ▼
-   Quality Scoring             src/scorer.py
-   CTR · CVR · Bounce · Session
+src/feature_engineering.py  Impression spike ratio, 7-day rolling averages,
+                             engagement index, trend delta, trend direction
         │
         ▼
-   Fraud Flag Detection        src/scorer.py
-   IMPRESSION_SPIKE · ZERO_CVR · HIGH_CTR
+src/scorer.py             6 behavioral signal scores → weighted composite quality_score (0–100)
         │
         ▼
-   Recommendation Engine       src/recommender.py
-   SCALE / MONITOR / PAUSE + reason
+src/anomaly.py            Rule-based anomaly flags → flag_severity, flag_reason
         │
         ▼
-   Streamlit Dashboard         main.py
+src/recommender.py        SCALE / MONITOR / PAUSE + plain-English reason
+        │
+        ▼
+src/analytics.py          Executive KPIs, trend tables, vendor intelligence table
+        │
+        ▼
+Streamlit Dashboard       7-section interactive UI (main.py)
+
+src/experiment_engine.py  Parallel: A/B experiment simulation and uplift measurement
+sql/                      Reference: how this pipeline would run in a production warehouse
 ```
 
 All processing is in-memory. No database. No backend API. Runs entirely locally.
@@ -56,21 +78,35 @@ All processing is in-memory. No database. No backend API. Runs entirely locally.
 ## Project Structure
 
 ```
-├── main.py                   # Streamlit dashboard
-├── config.yaml               # Scoring thresholds and flag rules
+.
+├── main.py                       # Streamlit dashboard (7 sections)
+├── config.yaml                   # All scoring thresholds and anomaly rules
 ├── requirements.txt
+├── README.md
 ├── .gitignore
 ├── data/
-│   └── sample_traffic.csv    # Sample vendor traffic dataset
+│   ├── sample_vendor_daily.csv   # 8 vendors × 35 days of synthetic behavioral data
+│   ├── sample_experiments.csv    # 5 experiment definitions
+│   └── sample_event_log.csv      # Mock session-level event log (SQL demo)
+├── sql/
+│   ├── schema.sql                # Production database schema
+│   ├── vendor_metrics.sql        # Daily aggregation query from raw events
+│   └── experiment_results.sql    # Experiment result summarization query
 ├── src/
-│   ├── ingestion.py          # Data loading and validation
-│   ├── scorer.py             # Quality scoring and fraud flag detection
-│   └── recommender.py        # Recommendation engine
+│   ├── ingestion.py              # Data loading and validation
+│   ├── feature_engineering.py    # Rolling averages, trend features, engagement index
+│   ├── scorer.py                 # Behavioral signal scoring
+│   ├── anomaly.py                # Rule-based anomaly flag detection
+│   ├── recommender.py            # SCALE / MONITOR / PAUSE logic
+│   ├── experiment_engine.py      # Experiment simulation and uplift calculation
+│   ├── analytics.py              # KPI aggregations and dashboard-ready tables
+│   └── utils.py                  # Shared formatting utilities
 └── docs/
-    ├── approach.md
-    ├── architecture.md
-    ├── assumptions.md
-    └── future_improvements.md
+    ├── approach.md               # Product thinking and design tradeoffs
+    ├── architecture.md           # Data flow and module responsibilities
+    ├── assumptions.md            # Key assumptions and their rationale
+    ├── experiment_engine.md      # How the experiment engine works
+    └── future_improvements.md    # Production path and integration opportunities
 ```
 
 ---
@@ -91,97 +127,118 @@ Requires Python 3.8+.
 streamlit run main.py
 ```
 
-The app loads the sample dataset by default. To use your own data, upload a CSV via the sidebar.
-
-**Required CSV columns:**
-
-| Column | Description |
-|---|---|
-| `vendor_id` | Unique vendor identifier |
-| `vendor_name` | Display name |
-| `impressions` | Total impressions served |
-| `clicks` | Total clicks recorded |
-| `conversions` | Downstream conversions (0 if unavailable) |
-| `bounce_rate` | Share of sessions with no engagement (0–1) |
-| `avg_session_sec` | Average session duration in seconds |
-| `impressions_prev_avg` | Historical baseline impression volume (for spike detection) |
+The app loads sample data by default. To use your own data, upload a CSV via the sidebar.
 
 ---
 
-## Scoring Logic
+## CSV Schema
 
-The quality score is a 0–100 composite of four signals, weighted equally.
+The main vendor daily dataset requires these columns:
 
-| Signal | Measures | Scoring method |
+| Column | Type | Description |
 |---|---|---|
-| **CTR Score** | Click-through rate validity | 100 within healthy range (0.01%–10%). Penalized outside. |
-| **CVR Score** | Conversion efficiency | Normalized against the best vendor in the dataset. |
-| **Bounce Score** | Session intent | Penalized linearly as bounce rate approaches the 85% ceiling. |
-| **Session Score** | Dwell time / engagement depth | Normalized against a 120-second target. |
+| `date` | date | Reporting date (YYYY-MM-DD) |
+| `vendor_id` | string | Unique vendor identifier |
+| `vendor_name` | string | Display name |
+| `impressions` | int | Total impressions served |
+| `clicks` | int | Total clicks recorded |
+| `bounce_rate` | float (0–1) | Share of sessions with no engagement |
+| `avg_session_sec` | float | Average session duration in seconds |
+| `avg_scroll_depth` | float (0–1) | Average scroll depth on landing pages |
+| `repeat_visit_rate` | float (0–1) | Share of sessions from returning users |
+| `landing_page_views` | int | Sessions with at least one page view |
+| `impressions_prev_avg` | float | Historical average impressions (for spike detection) |
 
-All thresholds are configurable in `config.yaml`.
+**No conversion data required.**
 
 ---
 
-## Fraud Flags
+## Scoring Methodology
 
-Fraud flags are independent of the quality score. Any active flag triggers a PAUSE recommendation.
+The composite quality score is a configurable weighted average of six signals:
 
-| Flag | Condition | Interpretation |
+| Signal | Default Weight | Scoring Method |
 |---|---|---|
-| `IMPRESSION_SPIKE` | Impressions > 3× historical average | Sudden volume burst — inconsistent with organic traffic |
-| `ZERO_CVR` | 500+ clicks, 0 conversions | High engagement volume with no downstream value |
-| `HIGH_CTR` | CTR > 15% | Abnormal click rate for display — likely inflated |
+| CTR Legitimacy | 20% | 100 within 0.5%–12% range; penalized outside |
+| Bounce Score | 20% | `(1 − bounce_rate / 0.75) × 100` |
+| Dwell Score | 20% | `(avg_session_sec / 120) × 100`, capped at 100 |
+| Scroll Engagement | 20% | `(avg_scroll_depth / 0.30) × 100`, capped at 100 |
+| Repeat Visit Score | 10% | Full score in healthy range; penalizes extremes |
+| Trend Health | 10% | Based on week-over-week engagement index change |
+
+All weights and thresholds are configurable in `config.yaml`.
 
 ---
 
-## Recommendation Logic
+## Anomaly Detection
 
-| Action | Condition |
-|---|---|
-| **SCALE** | Score ≥ 70 and no active flags |
-| **MONITOR** | Score 40–69 and no active flags |
-| **PAUSE** | Score < 40, or any active flag |
+Flags are applied independently from the quality score. Severe flags force a PAUSE.
 
-Each recommendation includes a plain-language reason explaining the decision.
-
----
-
-## Dashboard
-
-The dashboard has six sections:
-
-1. **Campaign Health Overview** — top-level KPIs: avg score, vendors to pause, vendors to scale
-2. **Vendor Quality Ranking** — full table sorted by score with recommendation and reasoning
-3. **Quality Score by Vendor** — horizontal bar chart, color-coded by recommendation
-4. **Suspicious Traffic Analysis** — flagged vendors with flag definitions
-5. **Vendor Drill-down** — per-vendor signal breakdown and recommendation context
-6. **Scoring Methodology** — inline explanation of how the score is computed
+| Flag | Trigger | Severity |
+|---|---|---|
+| `IMPRESSION_SPIKE` | Impressions > 3× historical average | Severe |
+| `HIGH_CTR_ANOMALY` | CTR > 15% | Severe |
+| `HIGH_BOUNCE_LOW_DWELL` | Bounce > 85% AND session < 10s | Severe |
+| `ENGAGEMENT_COLLAPSE` | Engagement index drops >30% vs baseline | Severe |
+| `LOW_SCROLL_TRAFFIC` | Scroll depth < 10% with >100 clicks | Warning |
+| `REPEAT_PATTERN_ANOMALY` | Repeat visit rate > 95% | Warning |
 
 ---
 
-## Assumptions
+## Experiment Engine
 
-See [`docs/assumptions.md`](docs/assumptions.md) for the full list.
+The experiment engine supports vendor-level A/B testing without a backend service:
 
-Key assumptions:
-- Data is vendor-aggregated, not session-level
-- Conversion data may be zero for some vendors — handled via ZERO_CVR flag
-- Historical impression baseline (`impressions_prev_avg`) is provided externally
-- All signals are treated as equally important (equal weighting)
+- Define experiments with control/variant traffic allocation
+- Randomly assign vendor traffic rows to control or variant groups
+- Compare behavioral outcomes: CTR, bounce rate, session time, scroll depth, repeat rate
+- Compute uplift percentages and generate plain-English recommendations
+
+See [`docs/experiment_engine.md`](docs/experiment_engine.md) for full details.
+
+---
+
+## SQL / Analytics Layer
+
+The `sql/` folder demonstrates how this pipeline would operate in a production warehouse:
+
+- `schema.sql` — table schemas for raw events, vendor metrics, and experiment tracking
+- `vendor_metrics.sql` — daily aggregation from session-level events
+- `experiment_results.sql` — control vs variant comparison with uplift calculation
+
+The SQL layer connects to `data/sample_event_log.csv`, which shows the raw event format that would feed the pipeline via a tag or pixel.
+
+---
+
+## Dashboard Sections
+
+1. **Executive Overview** — KPIs: vendors, avg score, scale/monitor/pause counts, active experiments
+2. **Vendor Intelligence Table** — latest score, trend direction, recommendation, and flags per vendor
+3. **Quality Trend Analysis** — score and engagement over time; rising-risk vendor table
+4. **Suspicious Traffic Analysis** — flagged vendors with plain-English explanations
+5. **Experiment Engine** — experiment registry, simulation, control vs variant comparison, uplift chart
+6. **Vendor Drilldown** — full historical view per vendor with anomaly markers
+7. **Methodology** — scoring logic, anomaly rules, experiment assumptions, pipeline diagram
 
 ---
 
 ## Limitations
 
 - Uses synthetic data, not real ad traffic logs
-- Rule-based fraud detection only — no statistical anomaly modeling
+- Rule-based anomaly detection only — no statistical modeling
 - Aggregate-level analysis — cannot identify individual bot sessions
-- No time-series analysis — scores reflect a single reporting period
-- No conversion attribution — CVR uses raw counts, not attributed conversions
+- Experiment results are directional only — no formal significance testing
+- No external data enrichment (IVT vendors, domain reputation)
 
 ---
 
 ## Future Improvements
 
 See [`docs/future_improvements.md`](docs/future_improvements.md).
+
+Key next steps:
+- Connect to DSP APIs or a data warehouse (BigQuery, Snowflake) for live data
+- Add Isolation Forest or similar for statistical anomaly detection
+- Integrate GrowthBook or PostHog for production-grade experiment significance testing
+- Schedule the pipeline via Airflow or dbt
+- Add automated alerts for PAUSE-threshold crossings
