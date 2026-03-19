@@ -1,0 +1,6 @@
+experiment_id,experiment_name,start_date,end_date,status,vendor_id,control_allocation,variant_allocation,primary_metric
+EXP001,SportzMedia Landing Page Variant,2026-02-09,2026-02-23,completed,V001,0.5,0.5,ctr
+EXP002,TechBlog Creative A/B Test,2026-02-16,2026-03-15,active,V004,0.5,0.5,avg_session_sec
+EXP003,GamingZone Bid Floor Adjustment,2026-02-23,2026-03-08,paused,V007,0.6,0.4,bounce_rate
+EXP004,CookingCorner Placement Expansion,2026-03-01,2026-03-15,active,V006,0.5,0.5,avg_scroll_depth
+EXP005,LifestyleNet Retargeting Test,2026-02-15,2026-03-01,completed,V003,0.5,0.5,repeat_visit_rate
