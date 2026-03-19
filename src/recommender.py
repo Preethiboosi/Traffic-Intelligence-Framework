@@ -1,43 +1,74 @@
-def _recommend(row, pause_below, scale_above):
-    has_flags = row["flags"] != "—"
-    score = row["quality_score"]
-    if score < pause_below or has_flags:
+"""
+recommender.py — Map quality score and anomaly flags to SCALE / MONITOR / PAUSE.
+
+Decision logic:
+    PAUSE   — severe anomaly flag active, OR score below monitor threshold
+    SCALE   — score >= scale threshold AND no active flags
+    MONITOR — everything else (acceptable score, warning flags only)
+"""
+
+import pandas as pd
+
+
+def _recommend(
+    score: float, flag_severity: str, scale_min: float, monitor_min: float
+) -> str:
+    if flag_severity == "severe":
         return "PAUSE"
-    elif score >= scale_above:
+    if score >= scale_min and flag_severity == "none":
         return "SCALE"
-    else:
+    if score >= monitor_min:
         return "MONITOR"
+    return "PAUSE"
 
 
-def _reason(row):
-    rec   = row["recommendation"]
-    flags = row["flags"]
-
-    if rec == "PAUSE":
-        if "IMPRESSION_SPIKE" in flags and "ZERO_CVR" in flags:
-            return "Volume spike with zero conversions — likely invalid traffic"
-        if "HIGH_CTR" in flags and "ZERO_CVR" in flags:
-            return "Abnormal CTR with zero conversions — click fraud pattern"
-        if "IMPRESSION_SPIKE" in flags:
-            return "Abnormal impression spike relative to historical average"
-        if "ZERO_CVR" in flags:
-            return "High click volume yielding zero conversions — no downstream value"
-        if "HIGH_CTR" in flags:
-            return "CTR exceeds healthy range — potential bot or incentivized traffic"
-        return "Quality score below acceptable threshold — poor overall engagement"
-
-    if rec == "MONITOR":
-        return "Acceptable engagement but not consistently strong — watch for trend"
-
-    return "Strong engagement across all signals — safe to increase budget allocation"
-
-
-def apply_recommendations(df, cfg):
-    r = cfg["recommendations"]
-    result = df.copy()
-    result["recommendation"] = result.apply(
-        lambda row: _recommend(row, r["pause_below_score"], r["scale_above_score"]),
-        axis=1
+def _reason(
+    recommendation: str, score: float, flags: list, flag_reason: str
+) -> str:
+    if recommendation == "PAUSE":
+        if flags:
+            return (
+                f"Severe anomalies detected: {', '.join(flags)}. {flag_reason}"
+            )
+        return (
+            f"Quality score {score:.0f}/100 is below the minimum threshold "
+            f"for continued spend. Review engagement signals before resuming."
+        )
+    if recommendation == "SCALE":
+        return (
+            f"Score {score:.0f}/100 with no anomaly flags — traffic quality is "
+            f"strong and consistent. Safe to increase budget allocation."
+        )
+    # MONITOR
+    if flags:
+        return (
+            f"Score {score:.0f}/100 is acceptable, but warning flags are active: "
+            f"{', '.join(flags)}. Monitor closely before expanding spend."
+        )
+    return (
+        f"Score {score:.0f}/100 is acceptable but not exceptional. "
+        f"Continue monitoring for trend changes before scaling."
     )
-    result["reason"] = result.apply(_reason, axis=1)
-    return result
+
+
+def apply_recommendations(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    """Apply SCALE / MONITOR / PAUSE recommendation to each row."""
+    df = df.copy()
+    rules = config["recommendation_rules"]
+    scale_min = rules["scale_min_score"]
+    monitor_min = rules["monitor_min_score"]
+
+    df["recommendation"] = df.apply(
+        lambda r: _recommend(
+            r["quality_score"], r["flag_severity"], scale_min, monitor_min
+        ),
+        axis=1,
+    )
+    df["reason"] = df.apply(
+        lambda r: _reason(
+            r["recommendation"], r["quality_score"], r["flags"], r["flag_reason"]
+        ),
+        axis=1,
+    )
+
+    return df

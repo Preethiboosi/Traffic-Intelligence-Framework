@@ -1,18 +1,60 @@
-# Traffic Quality Thresholds
-# Adjust these values to match your campaign expectations.
+# Traffic Intelligence Framework — Configuration
+# All scoring thresholds, anomaly rules, and experiment defaults live here.
+# Adjust without touching code.
 
 scoring:
+  weights:
+    ctr:          0.20
+    bounce:       0.20
+    dwell:        0.20
+    scroll:       0.20
+    repeat_visit: 0.10
+    trend_health: 0.10
+
   ctr:
-    min_healthy: 0.0001   # 0.01% — below this is likely dead traffic
-    max_healthy: 0.10     # 10%   — above this is likely bot-inflated
-  bounce_rate_max: 0.85   # 85%  — above this signals low-intent visits
-  session_time_max: 120   # 120s — used to normalize dwell time to 0–100
+    min_healthy: 0.005   # 0.5%  — below this suggests dead or undelivered traffic
+    max_healthy: 0.12    # 12%   — above this is likely bot-inflated
 
-fraud_flags:
-  impression_spike_multiplier: 3.0   # flag if volume > 3x historical average
-  zero_cvr_click_threshold: 500      # min clicks before ZERO_CVR flag applies
-  high_ctr_threshold: 0.15           # 15% CTR is abnormal for display traffic
+  bounce:
+    max_healthy: 0.75    # 75%   — penalized linearly up to this ceiling
 
-recommendations:
-  pause_below_score: 40
-  scale_above_score: 70
+  dwell:
+    target_sec: 120      # 120s  — benchmark for full-quality session engagement
+
+  scroll:
+    min_healthy: 0.30    # 30%   — minimum expected scroll depth for engaged sessions
+
+  repeat_visit:
+    min_healthy:    0.05  # 5%   — some repeat traffic is a healthy signal
+    max_suspicious: 0.90  # 90%  — above this suggests bot or recycled traffic
+
+anomaly_rules:
+  impression_spike_multiple:    3.0   # flag if impressions > 3× historical average
+  high_ctr_threshold:           0.15  # 15% CTR is implausible for display traffic
+  high_bounce_threshold:        0.85  # paired with low dwell for HIGH_BOUNCE_LOW_DWELL flag
+  low_dwell_threshold_sec:      10    # < 10s session alongside high bounce = exit fraud pattern
+  low_scroll_threshold:         0.10  # < 10% scroll with significant clicks = no content engagement
+  engagement_collapse_threshold: 0.30 # 30% drop in engagement index triggers ENGAGEMENT_COLLAPSE
+  repeat_pattern_max:           0.95  # > 95% repeat rate is unrealistically high
+
+  severe_flags:
+    - IMPRESSION_SPIKE
+    - HIGH_CTR_ANOMALY
+    - HIGH_BOUNCE_LOW_DWELL
+    - ENGAGEMENT_COLLAPSE
+
+  warning_flags:
+    - LOW_SCROLL_TRAFFIC
+    - REPEAT_PATTERN_ANOMALY
+
+recommendation_rules:
+  scale_min_score:   75   # score >= 75 with no flags → SCALE
+  monitor_min_score: 45   # score >= 45 → MONITOR; below this → PAUSE
+
+experiment_defaults:
+  min_sample_size: 100
+  default_duration_days: 14
+  significance_note: >
+    Results are directional only — no formal statistical testing is implemented
+    in this POC. Use uplift direction and magnitude as signal, not confirmation.
+    Consider GrowthBook or PostHog for production-grade significance testing.
